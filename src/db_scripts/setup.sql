@@ -1,8 +1,15 @@
--- 1. Capture every schema change
-CREATE EVENT TRIGGER capture_ddl_changes
-    ON ddl_command_end
-    WHEN TAG IN ('CREATE TABLE', 'ALTER TABLE', 'DROP TABLE')
-    EXECUTE FUNCTION platform.log_and_notify();
+-- 1. Create table to track schema changes
+CREATE TABLE IF NOT EXISTS platform.schema_changes (
+    id          bigserial PRIMARY KEY,
+    event_data  jsonb NOT NULL,
+    created_at  timestamptz DEFAULT now(),
+    processed   boolean DEFAULT false,
+    processed_at timestamptz
+);
+
+-- Index for efficient polling if LISTEN/NOTIFY goes down
+CREATE INDEX idx_unprocessed ON platform.schema_changes (processed, created_at) 
+WHERE NOT processed;
 
 -- 2. Minimal trigger function: log and notify
 CREATE FUNCTION platform.log_and_notify() RETURNS event_trigger AS $$
@@ -28,3 +35,10 @@ BEGIN
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
+
+
+-- 3. Capture every schema change
+CREATE EVENT TRIGGER capture_ddl_changes
+    ON ddl_command_end
+    WHEN TAG IN ('CREATE TABLE', 'ALTER TABLE', 'DROP TABLE')
+    EXECUTE FUNCTION platform.log_and_notify();
